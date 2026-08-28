@@ -130,7 +130,9 @@ jobs:
           bash scripts/fetch_frpc.sh linux amd64 "$FRPC_VERSION"
           cp third_party/frpc/linux-amd64/frpc build/linux/x64/release/bundle/
 
+      # AppImage 打包在 CI 偶发失败(linuxdeploy 工具链问题),失败不阻塞 deb 产物
       - name: Build AppImage
+        continue-on-error: true
         run: |
           curl -sL -o linuxdeploy \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
@@ -163,12 +165,18 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: flux-linux-x64
-          path: |
-            flux-linux-x86_64.AppImage
-            flux-linux-amd64.deb
+          name: flux-linux-x64-appimage
+          path: flux-linux-x86_64.AppImage
+        continue-on-error: true
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flux-linux-x64-deb
+          path: flux-linux-amd64.deb
+
+  # 试验性:arm64 runner 的 Flutter 安装尚不稳定,失败不阻塞发版
   linux-arm64:
+    continue-on-error: true
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -187,6 +195,7 @@ jobs:
           cp third_party/frpc/linux-arm64/frpc build/linux/arm64/release/bundle/
 
       - name: Build AppImage
+        continue-on-error: true
         run: |
           curl -sL -o linuxdeploy \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-aarch64.AppImage
@@ -219,10 +228,15 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: flux-linux-arm64
-          path: |
-            flux-linux-arm64.AppImage
-            flux-linux-arm64.deb
+          name: flux-linux-arm64-appimage
+          path: flux-linux-arm64.AppImage
+        continue-on-error: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flux-linux-arm64-deb
+          path: flux-linux-arm64.deb
+        continue-on-error: true
 
   # 汇总:全部产物就绪后统一挂到 Release(避免并发创建冲突)
   release:
