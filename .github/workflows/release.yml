@@ -110,6 +110,10 @@ jobs:
         with:
           name: flux-macos-x64
           path: flux-macos-x64.dmg
+      # Intel runner 排队时间长,产物成功后自行追加到 Release(softprops 幂等)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: flux-macos-x64.dmg
 
   linux-x64:
     runs-on: ubuntu-latest
@@ -238,9 +242,10 @@ jobs:
           path: flux-linux-arm64.deb
         continue-on-error: true
 
-  # 汇总:全部产物就绪后统一挂到 Release(避免并发创建冲突)
+  # 汇总:主流产物就绪后统一挂到 Release(避免并发创建冲突)
+  # macos-x64 因 Intel runner 排队慢,不纳入 needs,由其 job 自行追加
   release:
-    needs: [windows, macos-arm64, macos-x64, linux-x64, linux-arm64]
+    needs: [windows, macos-arm64, linux-x64, linux-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
