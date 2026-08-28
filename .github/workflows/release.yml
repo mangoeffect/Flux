@@ -24,7 +24,7 @@ jobs:
       - name: Bundle frpc
         shell: bash
         run: |
-          scripts/fetch_frpc.sh windows amd64 "$FRPC_VERSION"
+          bash scripts/fetch_frpc.sh windows amd64 "$FRPC_VERSION"
           cp third_party/frpc/windows-amd64/frpc.exe build/windows/x64/runner/Release/
       # ── 代码签名(可选):配置 secrets WINDOWS_CERT_PFX_B64(pfx 的 Base64)
       #    与 WINDOWS_CERT_PASSWORD 后取消注释,避免 SmartScreen 拦截
@@ -47,9 +47,6 @@ jobs:
         with:
           name: flux-windows-x64
           path: flux-windows-x64.zip
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: flux-windows-x64.zip
 
   macos-arm64:
     runs-on: macos-latest
@@ -64,7 +61,7 @@ jobs:
       - run: flutter build macos --release
       - name: Bundle frpc + dmg
         run: |
-          scripts/fetch_frpc.sh darwin arm64 "$FRPC_VERSION"
+          bash scripts/fetch_frpc.sh darwin arm64 "$FRPC_VERSION"
           APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
           cp third_party/frpc/darwin-arm64/frpc "$APP/Contents/MacOS/"
           hdiutil create -volname Flux -srcfolder "$APP" -ov -format UDZO flux-macos-arm64.dmg
@@ -90,9 +87,6 @@ jobs:
         with:
           name: flux-macos-arm64
           path: flux-macos-arm64.dmg
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: flux-macos-arm64.dmg
 
   # Apple Silicon 之外的 Mac(x64 runner:macos-13 是最后的 Intel 镜像)
   macos-x64:
@@ -108,7 +102,7 @@ jobs:
       - run: flutter build macos --release
       - name: Bundle frpc + dmg
         run: |
-          scripts/fetch_frpc.sh darwin amd64 "$FRPC_VERSION"
+          bash scripts/fetch_frpc.sh darwin amd64 "$FRPC_VERSION"
           APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
           cp third_party/frpc/darwin-amd64/frpc "$APP/Contents/MacOS/"
           hdiutil create -volname Flux -srcfolder "$APP" -ov -format UDZO flux-macos-x64.dmg
@@ -116,9 +110,6 @@ jobs:
         with:
           name: flux-macos-x64
           path: flux-macos-x64.dmg
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: flux-macos-x64.dmg
 
   linux-x64:
     runs-on: ubuntu-latest
@@ -136,7 +127,7 @@ jobs:
       - run: flutter build linux --release
       - name: Bundle frpc
         run: |
-          scripts/fetch_frpc.sh linux amd64 "$FRPC_VERSION"
+          bash scripts/fetch_frpc.sh linux amd64 "$FRPC_VERSION"
           cp third_party/frpc/linux-amd64/frpc build/linux/x64/release/bundle/
 
       - name: Build AppImage
@@ -174,11 +165,6 @@ jobs:
           path: |
             flux-linux-x86_64.AppImage
             flux-linux-amd64.deb
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            flux-linux-x86_64.AppImage
-            flux-linux-amd64.deb
 
   linux-arm64:
     runs-on: ubuntu-24.04-arm
@@ -195,7 +181,7 @@ jobs:
       - run: flutter build linux --release
       - name: Bundle frpc
         run: |
-          scripts/fetch_frpc.sh linux arm64 "$FRPC_VERSION"
+          bash scripts/fetch_frpc.sh linux arm64 "$FRPC_VERSION"
           cp third_party/frpc/linux-arm64/frpc build/linux/arm64/release/bundle/
 
       - name: Build AppImage
@@ -233,8 +219,16 @@ jobs:
           path: |
             flux-linux-arm64.AppImage
             flux-linux-arm64.deb
+
+  # 汇总:全部产物就绪后统一挂到 Release(避免并发创建冲突)
+  release:
+    needs: [windows, macos-arm64, macos-x64, linux-x64, linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          files: |
-            flux-linux-arm64.AppImage
-            flux-linux-arm64.deb
+          files: dist/*
