@@ -6,6 +6,7 @@ import 'package:toml/toml.dart';
 
 import '../../model/profile.dart';
 import '../../model/proxy_config.dart';
+import '../security/token_store.dart';
 import 'toml_encoder.dart';
 
 /// frpc TOML 的生成与导入、Profile 的 JSON 持久化。
@@ -21,10 +22,12 @@ class ConfigService {
 
   /// Profile → frpc.toml 文本。
   ///
-  /// 恒定注入 [webServer](127.0.0.1 + 随机端口/口令,持久化在 Profile 中),
-  /// 供 AdminApiService 做状态查询与热重载;禁用的代理不生成。
-  String profileToToml(Profile profile) {
-    final admin = profile.adminWebServer ??= _newWebServer();
+  /// [injectAdmin] 为 true(运行时)恒定注入 [webServer](127.0.0.1 + 随机
+  /// 端口/口令,持久化在 Profile 中),供 AdminApiService 做状态查询与热
+  /// 重载;导出时传 false 生成干净配置。禁用的代理不生成。
+  String profileToToml(Profile profile, {bool injectAdmin = true}) {
+    WebServerConfig? admin;
+    if (injectAdmin) admin = profile.adminWebServer ??= _newWebServer();
     final hasToken = profile.token != null && profile.token!.isNotEmpty;
 
     // auth 表:token + extraClient 中保留的其他 auth.* 字段合并,避免重复定义
@@ -45,12 +48,13 @@ class ConfigService {
       if (profile.dnsServer.isNotEmpty) 'dnsServer': profile.dnsServer,
       ...extras,
       if (auth.isNotEmpty) 'auth': auth,
-      'webServer': {
-        'addr': '127.0.0.1',
-        'port': admin.port,
-        'user': admin.user,
-        'password': admin.password,
-      },
+      if (admin != null)
+        'webServer': {
+          'addr': '127.0.0.1',
+          'port': admin.port,
+          'user': admin.user,
+          'password': admin.password,
+        },
     };
 
     final buf = StringBuffer(encodeToml(doc));
@@ -75,6 +79,10 @@ class ConfigService {
     file.writeAsStringSync(profileToToml(profile));
     return file;
   }
+
+  /// 导出干净 TOML(不注入 admin webServer),可直接给 frpc 使用或再导入。
+  String exportToml(Profile profile) =>
+      profileToToml(profile, injectAdmin: false);
 
   // ------------------------------------------------ TOML 导入
 
@@ -141,7 +149,15 @@ class ConfigService {
     final profiles = <Profile>[];
     for (final f in files) {
       try {
-        profiles.add(profileFromJson(await f.readAsString()));
+        final profile = profileFromJson(await f.readAsString());
+        // token 在系统凭据库中,读回内存
+        if (profile.tokenSecured && profile.token == null) {
+          profile.token = await TokenStore.instance.read(profile.id);
+        } else if (profile.token != null && profile.token!.isNotEmpty) {
+          // 旧版明文:立即迁移到凭据库并重写 JSON
+          await saveProfile(profile);
+        }
+        profiles.add(profile);
       } catch (_) {
         // 单个损坏文件跳过,不阻塞启动
       }
@@ -150,12 +166,16 @@ class ConfigService {
   }
 
   Future<void> saveProfile(Profile profile) async {
+    // token 优先写入系统凭据库;不可用时降级明文 JSON
+    profile.tokenSecured =
+        await TokenStore.instance.write(profile.id, profile.token);
     await _profilesDir.create(recursive: true);
     final file = File(p.join(_profilesDir.path, '${profile.id}.json'));
     await file.writeAsString(profileToJson(profile));
   }
 
   Future<void> deleteProfile(String id) async {
+    await TokenStore.instance.delete(id);
     final file = File(p.join(_profilesDir.path, '$id.json'));
     if (await file.exists()) await file.delete();
     final runtime = Directory(p.join(appSupportDir.path, 'runtime', id));

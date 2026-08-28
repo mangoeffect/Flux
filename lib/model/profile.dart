@@ -29,6 +29,7 @@ class Profile {
     this.serverPort = 7000,
     this.user,
     this.token,
+    this.tokenSecured = false,
     this.loginFailExit = false,
     this.dnsServer = const [],
     List<ProxyConfig>? proxies,
@@ -50,8 +51,12 @@ class Profile {
   /// frp 多用户名(顶层 user 字段)。
   String? user;
 
-  /// auth.token。
+  /// auth.token。运行时内存中始终有值;[tokenSecured] 为 true 时
+  /// JSON 持久化不落明文(存于系统凭据库)。
   String? token;
+
+  /// token 已存入系统凭据库(Windows 凭据管理器/Keychain/libsecret)。
+  bool tokenSecured;
 
   /// 网络未就绪时自动重试(Android/开机场景),默认 false。
   bool loginFailExit;
@@ -80,7 +85,8 @@ class Profile {
         'serverAddr': serverAddr,
         'serverPort': serverPort,
         'user': user,
-        'token': token,
+        'token': tokenSecured ? null : token,
+        'tokenSecured': tokenSecured,
         'loginFailExit': loginFailExit,
         'dnsServer': dnsServer,
         'proxies': proxies.map((p) => p.toJson()).toList(),
@@ -97,6 +103,7 @@ class Profile {
         serverPort: json['serverPort'] as int? ?? 7000,
         user: json['user'] as String?,
         token: json['token'] as String?,
+        tokenSecured: json['tokenSecured'] as bool? ?? false,
         loginFailExit: json['loginFailExit'] as bool? ?? false,
         dnsServer: (json['dnsServer'] as List?)?.cast<String>() ?? const [],
         proxies: (json['proxies'] as List? ?? [])

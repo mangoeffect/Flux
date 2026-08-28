@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flux/core/config/config_service.dart';
 import 'package:flux/model/profile.dart';
 import 'package:flux/model/proxy_config.dart';
+import 'package:flux/model/visitor_config.dart';
 import 'package:toml/toml.dart';
 
 const sampleToml = '''
@@ -162,5 +163,38 @@ void main() {
     expect(restored.type, ProxyType.stcp);
     expect(restored.secretKey, 'k');
     expect(restored.extra['nested'], {'b': true});
+  });
+
+  test('VisitorConfig 编辑往返:typed → TOML → 解析一致,未知字段保留', () {
+    final profile = Profile(id: 'v1', name: 'v', serverAddr: '1.2.3.4');
+    profile.visitors.add(VisitorConfig(
+      name: 'visit-ssh',
+      type: VisitorType.stcp,
+      serverName: 'ssh',
+      secretKey: 'sk',
+      bindPort: 6000,
+      extra: {'keepTunnelOpen': true},
+    ).toMap());
+
+    final tomlText = service.profileToToml(profile);
+    final back = service.fromToml(tomlText, name: 'back');
+    expect(back.visitors.length, 1);
+    final v = VisitorConfig.fromMap(back.visitors.single);
+    expect(v.name, 'visit-ssh');
+    expect(v.type, VisitorType.stcp);
+    expect(v.serverName, 'ssh');
+    expect(v.secretKey, 'sk');
+    expect(v.bindPort, 6000);
+    expect(v.extra['keepTunnelOpen'], true);
+  });
+
+  test('exportToml 不注入 webServer', () {
+    final profile = Profile(id: 'e1', name: 'e', serverAddr: '1.2.3.4');
+    final exported = service.exportToml(profile);
+    final map = TomlDocument.parse(exported).toMap();
+    expect(map.containsKey('webServer'), isFalse);
+    // 导出文件可再次导入
+    final back = service.fromToml(exported, name: 'back');
+    expect(back.serverAddr, '1.2.3.4');
   });
 }

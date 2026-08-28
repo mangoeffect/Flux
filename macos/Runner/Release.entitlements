@@ -5,6 +5,9 @@
 	<!-- 关闭沙箱:frpc 以子进程运行,且单实例监听需本地回环 -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
+	<!-- token 安全存储(flutter_secure_storage) -->
+	<key>keychain-access-groups</key>
+	<array/>
 	<key>com.apple.security.network.server</key>
 	<true/>
 	<key>com.apple.security.network.client</key>

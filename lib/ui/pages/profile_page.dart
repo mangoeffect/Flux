@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -5,9 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 
-/// Profile 管理 + 当前 Profile 的服务器连接信息表单 + 导入 frpc.toml。
+/// Profile 管理 + 当前 Profile 的服务器连接信息表单 + 导入/导出 frpc.toml。
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -51,6 +53,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _save() {
+    final l10n = AppLocalizations.of(context)!;
     final app = context.read<AppState>();
     final p = app.activeProfile;
     if (p == null) return;
@@ -61,10 +64,11 @@ class _ProfilePageState extends State<ProfilePage> {
     p.token = _token.text.isEmpty ? null : _token.text;
     app.saveActiveProfile();
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('已保存')));
+        .showSnackBar(SnackBar(content: Text(l10n.savedMsg)));
   }
 
   Future<void> _import() async {
+    final l10n = AppLocalizations.of(context)!;
     final app = context.read<AppState>();
     final files = await FilePicker.pickFiles(
       type: FileType.custom,
@@ -81,18 +85,63 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         setState(_syncFromProfile);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('导入成功:${app.activeProfile?.proxies.length ?? 0} 条代理')));
+            content: Text(l10n.importSuccess(
+                app.activeProfile?.proxies.length ?? 0))));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导入失败: $e')));
+            .showSnackBar(SnackBar(content: Text(l10n.importFailed('$e'))));
       }
     }
   }
 
+  Future<void> _export() async {
+    final l10n = AppLocalizations.of(context)!;
+    final app = context.read<AppState>();
+    final p = app.activeProfile;
+    if (p == null) return;
+    try {
+      // saveFile 由插件直接写文件(bytes 必传)
+      final uri = await FilePicker.saveFile(
+        dialogTitle: 'frpc.toml',
+        fileName: '${p.name}.toml',
+        bytes: utf8.encode(app.configService.exportToml(p)),
+        type: FileType.custom,
+        allowedExtensions: ['toml'],
+      );
+      if (uri == null || !mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10n.exportDone)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.exportFailed('$e'))));
+      }
+    }
+  }
+
+  Future<void> _verifyConfig() async {
+    final l10n = AppLocalizations.of(context)!;
+    final app = context.read<AppState>();
+    try {
+      final err = await app.verifyConfig();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(err == null ? l10n.verifyPassed : l10n.verifyFailed(err))));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  String? _lastProfileId;
+
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final app = context.watch<AppState>();
     if (app.activeProfile?.id != _lastProfileId) {
       _lastProfileId = app.activeProfile?.id;
@@ -108,25 +157,36 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           Row(
             children: [
-              Text('配置', style: Theme.of(context).textTheme.titleLarge),
+              Text(l10n.navProfile, style: Theme.of(context).textTheme.titleLarge),
               const Spacer(),
               OutlinedButton.icon(
+                icon: const Icon(Icons.fact_check_outlined, size: 18),
+                label: Text(l10n.btnVerifyConfig),
+                onPressed: _verifyConfig,
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.file_download_outlined, size: 18),
+                label: Text(l10n.btnExportToml),
+                onPressed: _export,
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
                 icon: const Icon(Icons.file_upload_outlined, size: 18),
-                label: const Text('导入 frpc.toml'),
+                label: Text(l10n.btnImportToml),
                 onPressed: _import,
               ),
               const SizedBox(width: 8),
               FilledButton.icon(
                 icon: const Icon(Icons.add),
-                label: const Text('新建配置'),
+                label: Text(l10n.btnNewProfile),
                 onPressed: () => _addProfileDialog(context, app),
               ),
             ],
           ),
           const SizedBox(height: 12),
           if (app.profiles.isEmpty)
-            const Expanded(
-                child: Center(child: Text('先新建一个配置,或导入现有 frpc.toml'))),
+            Expanded(child: Center(child: Text(l10n.noProfilesHint))),
           if (app.profiles.isNotEmpty) ...[
             Wrap(
               spacing: 8,
@@ -146,7 +206,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('服务器连接',
+                    Text(l10n.serverConnTitle,
                         style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: 12),
                     Row(children: [
@@ -154,15 +214,16 @@ class _ProfilePageState extends State<ProfilePage> {
                         flex: 2,
                         child: TextFormField(
                           controller: _addr,
-                          decoration: const InputDecoration(
-                              labelText: '服务器地址 *', hintText: 'x.x.x.x 或域名'),
+                          decoration: InputDecoration(
+                              labelText: l10n.serverAddrLabel,
+                              hintText: l10n.serverAddrHint),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextFormField(
                           controller: _port,
-                          decoration: const InputDecoration(labelText: '端口'),
+                          decoration: InputDecoration(labelText: l10n.portLabel),
                           keyboardType: TextInputType.number,
                           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                         ),
@@ -173,15 +234,14 @@ class _ProfilePageState extends State<ProfilePage> {
                       Expanded(
                         child: TextFormField(
                           controller: _user,
-                          decoration: const InputDecoration(
-                              labelText: '用户名(多用户模式,可空)'),
+                          decoration: InputDecoration(labelText: l10n.userLabel),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextFormField(
                           controller: _token,
-                          decoration: const InputDecoration(labelText: 'Token(可空)'),
+                          decoration: InputDecoration(labelText: l10n.tokenLabel),
                           obscureText: true,
                         ),
                       ),
@@ -189,16 +249,16 @@ class _ProfilePageState extends State<ProfilePage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _name,
-                      decoration: const InputDecoration(labelText: '配置名称'),
+                      decoration: InputDecoration(labelText: l10n.profileNameLabel),
                     ),
                     const SizedBox(height: 16),
                     Row(children: [
-                      FilledButton(onPressed: _save, child: const Text('保存')),
+                      FilledButton(onPressed: _save, child: Text(l10n.btnSave)),
                       const Spacer(),
                       if (app.profiles.length > 1)
                         TextButton.icon(
                           icon: const Icon(Icons.delete_outline, size: 18),
-                          label: const Text('删除此配置'),
+                          label: Text(l10n.deleteProfileBtn),
                           style: TextButton.styleFrom(
                               foregroundColor: Theme.of(context).colorScheme.error),
                           onPressed: () => _confirmDelete(context, app),
@@ -214,23 +274,23 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  String? _lastProfileId;
-
   void _addProfileDialog(BuildContext context, AppState app) {
+    final l10n = AppLocalizations.of(context)!;
     final nameCtrl = TextEditingController();
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('新建配置'),
+        title: Text(l10n.btnNewProfile),
         content: TextField(
           controller: nameCtrl,
           autofocus: true,
-          decoration: const InputDecoration(labelText: '配置名称', hintText: '如 家里的服务器'),
+          decoration: InputDecoration(
+              labelText: l10n.profileNameLabel, hintText: l10n.profileNameHint),
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('取消')),
+              child: Text(l10n.btnCancel)),
           FilledButton(
               onPressed: () async {
                 if (nameCtrl.text.trim().isEmpty) return;
@@ -238,23 +298,24 @@ class _ProfilePageState extends State<ProfilePage> {
                 if (dialogContext.mounted) Navigator.of(dialogContext).pop();
                 if (mounted) setState(_syncFromProfile);
               },
-              child: const Text('创建')),
+              child: Text(l10n.btnCreate)),
         ],
       ),
     );
   }
 
   void _confirmDelete(BuildContext context, AppState app) {
+    final l10n = AppLocalizations.of(context)!;
     final p = app.activeProfile!;
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('删除配置「${p.name}」?'),
-        content: const Text('将删除该配置及其代理列表,不可恢复。'),
+        title: Text(l10n.deleteProfileTitle(p.name)),
+        content: Text(l10n.deleteProfileConfirm),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('取消')),
+              child: Text(l10n.btnCancel)),
           FilledButton(
             style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.error),
@@ -263,7 +324,7 @@ class _ProfilePageState extends State<ProfilePage> {
               await app.deleteProfile(p.id);
               if (mounted) setState(_syncFromProfile);
             },
-            child: const Text('删除'),
+            child: Text(l10n.btnDelete),
           ),
         ],
       ),

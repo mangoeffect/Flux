@@ -4,16 +4,44 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../model/proxy_config.dart';
+import '../../model/visitor_config.dart';
 import '../../state/app_state.dart';
 
-class ProxiesPage extends StatelessWidget {
+/// 代理(服务端)与访问端(stcp/xtcp/sudp visitors)管理,双 Tab。
+class ProxiesPage extends StatefulWidget {
   const ProxiesPage({super.key});
 
   @override
+  State<ProxiesPage> createState() => _ProxiesPageState();
+}
+
+class _ProxiesPageState extends State<ProxiesPage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 2, vsync: this);
+    _tab.addListener(() {
+      if (mounted && !_tab.indexIsChanging) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final app = context.watch<AppState>();
     final proxies = app.proxies;
+    final visitors = app.visitors;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -22,27 +50,34 @@ class ProxiesPage extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('代理', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(width: 8),
-              Text('${proxies.length} 条', style: Theme.of(context).textTheme.bodySmall),
+              Text(l10n.proxiesTitle,
+                  style: Theme.of(context).textTheme.titleLarge),
               const Spacer(),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.fact_check_outlined, size: 18),
+                label: Text(l10n.btnVerifyConfig),
+                onPressed: () => _verifyConfig(context, app),
+              ),
+              const SizedBox(width: 8),
               if (app.frpc.isRunning)
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('热重载'),
+                    label: Text(l10n.btnHotReload),
                     onPressed: () async {
                       try {
                         await app.hotReload();
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('已热重载,代理配置生效')));
+                              SnackBar(
+                                  content: Text(
+                                      AppLocalizations.of(context)!.reloadedMsg)));
                         }
                       } catch (e) {
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('$e')));
+                          ScaffoldMessenger.of(context)
+                              .showSnackBar(SnackBar(content: Text('$e')));
                         }
                       }
                     },
@@ -50,75 +85,149 @@ class ProxiesPage extends StatelessWidget {
                 ),
               FilledButton.icon(
                 icon: const Icon(Icons.add),
-                label: const Text('新建代理'),
-                onPressed: () => _editProxy(context, null),
+                label: Text(_tab.index == 0 ? l10n.btnNewProxy : l10n.btnNewVisitor),
+                onPressed: () => _tab.index == 0
+                    ? _editProxy(context, null)
+                    : _editVisitor(context, null),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          TabBar(
+            controller: _tab,
+            tabs: [
+              Tab(text: l10n.tabProxies(proxies.length)),
+              Tab(text: l10n.tabVisitors(visitors.length)),
+            ],
+          ),
           Expanded(
-            child: proxies.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.alt_route,
-                            size: 48, color: Colors.grey.shade400),
-                        const SizedBox(height: 8),
-                        const Text('还没有代理,点击右上角新建'),
-                      ],
-                    ),
-                  )
-                : ListView.separated(
-                    itemCount: proxies.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      final proxy = proxies[i];
-                      return ListTile(
-                        leading: _typeBadge(proxy.type),
-                        title: Text(proxy.name),
-                        subtitle: Text(
-                          '${proxy.localIp}:${proxy.localPort} → '
-                          '${proxy.needsRemotePort && proxy.remotePort != null ? ":${proxy.remotePort}" : ""}'
-                          '${proxy.needsDomain && proxy.customDomains.isNotEmpty ? proxy.customDomains.join(", ") : ""}'
-                          '${proxy.needsSecretKey ? " (stcp/xtcp)" : ""}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Switch(
-                              value: proxy.enabled,
-                              onChanged: (v) {
-                                proxy.enabled = v;
-                                app.saveActiveProfile();
-                              },
-                            ),
-                            PopupMenuButton<String>(
-                              onSelected: (action) {
-                                if (action == 'edit') {
-                                  _editProxy(context, i);
-                                } else if (action == 'delete') {
-                                  app.removeProxyAt(i);
-                                }
-                              },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(value: 'edit', child: Text('编辑')),
-                                PopupMenuItem(value: 'delete', child: Text('删除')),
-                              ],
-                            ),
-                          ],
-                        ),
-                        onTap: () => _editProxy(context, i),
-                      );
-                    },
-                  ),
+            child: TabBarView(
+              controller: _tab,
+              children: [
+                _proxyList(context, app, proxies),
+                _visitorList(context, app, visitors),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
+
+  // ------------------------------------------------ 代理(服务端)列表
+
+  Widget _proxyList(
+      BuildContext context, AppState app, List<ProxyConfig> proxies) {
+    final l10n = AppLocalizations.of(context)!;
+    if (proxies.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.alt_route, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 8),
+            Text(l10n.noProxiesHint),
+          ],
+        ),
+      );
+    }
+    return ListView.separated(
+      itemCount: proxies.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
+      itemBuilder: (context, i) {
+        final proxy = proxies[i];
+        final tail =
+            '${proxy.needsRemotePort && proxy.remotePort != null ? ":${proxy.remotePort}" : ""}'
+            '${proxy.needsDomain && proxy.customDomains.isNotEmpty ? proxy.customDomains.join(", ") : ""}'
+            '${proxy.needsSecretKey ? " (stcp/xtcp)" : ""}';
+        return ListTile(
+          leading: _typeBadge(proxy.type),
+          title: Text(proxy.name),
+          subtitle: Text(
+            l10n.proxySubtitle('${proxy.localIp}:${proxy.localPort}', tail),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Switch(
+                value: proxy.enabled,
+                onChanged: (v) {
+                  proxy.enabled = v;
+                  app.saveActiveProfile();
+                },
+              ),
+              PopupMenuButton<String>(
+                onSelected: (action) {
+                  if (action == 'edit') {
+                    _editProxy(context, i);
+                  } else if (action == 'delete') {
+                    app.removeProxyAt(i);
+                  }
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'edit', child: Text(l10n.menuEdit)),
+                  PopupMenuItem(value: 'delete', child: Text(l10n.menuDelete)),
+                ],
+              ),
+            ],
+          ),
+          onTap: () => _editProxy(context, i),
+        );
+      },
+    );
+  }
+
+  // ------------------------------------------------ 访问端列表
+
+  Widget _visitorList(
+      BuildContext context, AppState app, List<VisitorConfig> visitors) {
+    final l10n = AppLocalizations.of(context)!;
+    if (visitors.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.vpn_lock_outlined, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 8),
+            Text(l10n.noVisitorsHint),
+          ],
+        ),
+      );
+    }
+    return ListView.separated(
+      itemCount: visitors.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
+      itemBuilder: (context, i) {
+        final v = visitors[i];
+        return ListTile(
+          leading: _visitorBadge(v.type),
+          title: Text(v.name),
+          subtitle: Text(
+            l10n.visitorSubtitle('${v.bindAddr}:${v.bindPort}', v.serverName, v.type.name),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: PopupMenuButton<String>(
+            onSelected: (action) {
+              if (action == 'edit') {
+                _editVisitor(context, i);
+              } else if (action == 'delete') {
+                app.removeVisitorAt(i);
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(value: 'edit', child: Text(l10n.menuEdit)),
+              PopupMenuItem(value: 'delete', child: Text(l10n.menuDelete)),
+            ],
+          ),
+          onTap: () => _editVisitor(context, i),
+        );
+      },
+    );
+  }
+
+  // ------------------------------------------------ 通用
 
   Widget _typeBadge(ProxyType type) {
     final color = switch (type) {
@@ -129,6 +238,25 @@ class ProxiesPage extends StatelessWidget {
       ProxyType.stcp => Colors.purple,
       ProxyType.xtcp => Colors.indigo,
       ProxyType.sudp => Colors.brown,
+    };
+    return Container(
+      width: 56,
+      height: 28,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(type.name.toUpperCase(),
+          style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  Widget _visitorBadge(VisitorType type) {
+    final color = switch (type) {
+      VisitorType.stcp => Colors.purple,
+      VisitorType.xtcp => Colors.indigo,
+      VisitorType.sudp => Colors.brown,
     };
     return Container(
       width: 56,
@@ -159,6 +287,40 @@ class ProxiesPage extends StatelessWidget {
         },
       ),
     );
+  }
+
+  void _editVisitor(BuildContext context, int? index) {
+    final app = context.read<AppState>();
+    final existing = index == null ? null : app.visitors[index];
+    showDialog<void>(
+      context: context,
+      builder: (_) => _VisitorEditDialog(
+        initial: existing?.copy(),
+        onSave: (visitor) {
+          if (index == null) {
+            app.addVisitor(visitor);
+          } else {
+            app.replaceVisitorAt(index, visitor);
+          }
+        },
+      ),
+    );
+  }
+
+  Future<void> _verifyConfig(BuildContext context, AppState app) async {
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      final err = await app.verifyConfig();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(err == null ? l10n.verifyPassed : l10n.verifyFailed(err))));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
   }
 }
 
@@ -221,20 +383,21 @@ class _ProxyEditDialogState extends State<_ProxyEditDialog> {
   }
 
   void _save() {
+    final l10n = AppLocalizations.of(context)!;
     if (!_formKey.currentState!.validate()) return;
     Object? extra;
     if (_extra.text.trim().isNotEmpty) {
       try {
         extra = jsonDecode(_extra.text);
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('高级字段 JSON 无效: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.invalidJsonErr('$e'))));
         return;
       }
     }
     if (extra != null && extra is! Map) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('高级字段必须是 JSON 对象')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10n.jsonMustBeObject)));
       return;
     }
     _proxy.name = _name.text.trim();
@@ -262,6 +425,7 @@ class _ProxyEditDialogState extends State<_ProxyEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
@@ -272,17 +436,17 @@ class _ProxyEditDialogState extends State<_ProxyEditDialog> {
             child: ListView(
               shrinkWrap: true,
               children: [
-                Text(widget.initial == null ? '新建代理' : '编辑代理',
+                Text(widget.initial == null ? l10n.dlgNewProxy : l10n.dlgEditProxy,
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 16),
                 Row(children: [
                   Expanded(
                     child: TextFormField(
                       controller: _name,
-                      decoration: const InputDecoration(
-                          labelText: '名称 *', hintText: '如 web、ssh'),
+                      decoration: InputDecoration(
+                          labelText: l10n.fieldName, hintText: l10n.fieldNameHint),
                       validator: (v) =>
-                          v == null || v.trim().isEmpty ? '必填' : null,
+                          v == null || v.trim().isEmpty ? l10n.requiredField : null,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -302,18 +466,18 @@ class _ProxyEditDialogState extends State<_ProxyEditDialog> {
                     flex: 2,
                     child: TextFormField(
                       controller: _localIp,
-                      decoration: const InputDecoration(labelText: '本地地址'),
+                      decoration: InputDecoration(labelText: l10n.localAddr),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: TextFormField(
                       controller: _localPort,
-                      decoration: const InputDecoration(labelText: '本地端口 *'),
+                      decoration: InputDecoration(labelText: l10n.localPort),
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       validator: (v) =>
-                          v == null || int.tryParse(v) == null ? '数字' : null,
+                          v == null || int.tryParse(v) == null ? l10n.mustBeNumber : null,
                     ),
                   ),
                 ]),
@@ -321,8 +485,8 @@ class _ProxyEditDialogState extends State<_ProxyEditDialog> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _remotePort,
-                    decoration: const InputDecoration(
-                        labelText: '远程端口(服务器侧)', hintText: '留空由服务器分配'),
+                    decoration: InputDecoration(
+                        labelText: l10n.remotePort, hintText: l10n.remotePortHint),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
@@ -331,53 +495,56 @@ class _ProxyEditDialogState extends State<_ProxyEditDialog> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _domains,
-                    decoration: const InputDecoration(
-                        labelText: '自定义域名', hintText: '多个用英文逗号分隔'),
+                    decoration: InputDecoration(
+                        labelText: l10n.customDomains,
+                        hintText: l10n.customDomainsHint),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _subdomain,
-                    decoration: const InputDecoration(labelText: '子域名'),
+                    decoration: InputDecoration(labelText: l10n.subdomain),
                   ),
                 ],
                 if (_proxy.type == ProxyType.http) ...[
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _locations,
-                    decoration: const InputDecoration(
-                        labelText: '路由 location', hintText: '如 /api,/static'),
+                    decoration: InputDecoration(
+                        labelText: l10n.locations, hintText: l10n.locationsHint),
                   ),
                   const SizedBox(height: 12),
                   Row(children: [
                     Expanded(
                         child: TextFormField(
                             controller: _basicUser,
-                            decoration: const InputDecoration(labelText: 'BasicAuth 用户'))),
+                            decoration:
+                                InputDecoration(labelText: l10n.basicAuthUser))),
                     const SizedBox(width: 12),
                     Expanded(
                         child: TextFormField(
                             controller: _basicPassword,
-                            decoration: const InputDecoration(labelText: 'BasicAuth 密码'))),
+                            decoration: InputDecoration(
+                                labelText: l10n.basicAuthPassword))),
                   ]),
                 ],
                 if (_proxy.needsSecretKey) ...[
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _secretKey,
-                    decoration: const InputDecoration(labelText: '共享密钥 secretKey'),
+                    decoration: InputDecoration(labelText: l10n.secretKey),
                   ),
                 ],
                 if (_proxy.type == ProxyType.https) ...[
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _serverName,
-                    decoration: const InputDecoration(labelText: 'TLS SNI serverName'),
+                    decoration: InputDecoration(labelText: l10n.tlsServerName),
                   ),
                 ],
                 const SizedBox(height: 12),
                 ExpansionTile(
                   tilePadding: EdgeInsets.zero,
-                  title: const Text('高级字段(JSON,写入 TOML 原样保留)'),
+                  title: Text(l10n.advancedJson),
                   children: [
                     TextFormField(
                       controller: _extra,
@@ -392,9 +559,187 @@ class _ProxyEditDialogState extends State<_ProxyEditDialog> {
                 Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                   TextButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('取消')),
+                      child: Text(l10n.btnCancel)),
                   const SizedBox(width: 8),
-                  FilledButton(onPressed: _save, child: const Text('保存')),
+                  FilledButton(onPressed: _save, child: Text(l10n.btnSave)),
+                ]),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VisitorEditDialog extends StatefulWidget {
+  const _VisitorEditDialog({required this.onSave, this.initial});
+
+  final VisitorConfig? initial;
+  final void Function(VisitorConfig) onSave;
+
+  @override
+  State<_VisitorEditDialog> createState() => _VisitorEditDialogState();
+}
+
+class _VisitorEditDialogState extends State<_VisitorEditDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late VisitorConfig _visitor;
+  late final TextEditingController _name;
+  late final TextEditingController _serverName;
+  late final TextEditingController _secretKey;
+  late final TextEditingController _bindAddr;
+  late final TextEditingController _bindPort;
+  late final TextEditingController _extra;
+
+  @override
+  void initState() {
+    super.initState();
+    _visitor = widget.initial?.copy() ?? VisitorConfig(name: '', bindPort: 7000);
+    _name = TextEditingController(text: _visitor.name);
+    _serverName = TextEditingController(text: _visitor.serverName);
+    _secretKey = TextEditingController(text: _visitor.secretKey);
+    _bindAddr = TextEditingController(text: _visitor.bindAddr);
+    _bindPort = TextEditingController(text: _visitor.bindPort.toString());
+    _extra = TextEditingController(
+        text: _visitor.extra.isEmpty ? '' : const JsonEncoder.withIndent('  ').convert(_visitor.extra));
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_name, _serverName, _secretKey, _bindAddr, _bindPort, _extra]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _save() {
+    final l10n = AppLocalizations.of(context)!;
+    if (!_formKey.currentState!.validate()) return;
+    Object? extra;
+    if (_extra.text.trim().isNotEmpty) {
+      try {
+        extra = jsonDecode(_extra.text);
+      } catch (e) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.invalidJsonErr('$e'))));
+        return;
+      }
+    }
+    if (extra != null && extra is! Map) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10n.jsonMustBeObject)));
+      return;
+    }
+    _visitor.name = _name.text.trim();
+    _visitor.serverName = _serverName.text.trim();
+    _visitor.secretKey = _secretKey.text.trim();
+    _visitor.bindAddr = _bindAddr.text.trim();
+    _visitor.bindPort = int.parse(_bindPort.text);
+    _visitor.extra = (extra as Map?)?.cast<String, Object>() ?? {};
+    widget.onSave(_visitor);
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Text(
+                    widget.initial == null
+                        ? l10n.dlgNewVisitor
+                        : l10n.dlgEditVisitor,
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 4),
+                Text(l10n.visitorDesc,
+                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 16),
+                Row(children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _name,
+                      decoration: InputDecoration(
+                          labelText: l10n.fieldName, hintText: l10n.fieldNameHint),
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? l10n.requiredField : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  DropdownButtonHideUnderline(
+                    child: DropdownButton<VisitorType>(
+                      value: _visitor.type,
+                      items: VisitorType.values
+                          .map((t) => DropdownMenuItem(value: t, child: Text(t.name)))
+                          .toList(),
+                      onChanged: (t) => setState(() => _visitor.type = t!),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _serverName,
+                  decoration: InputDecoration(
+                      labelText: l10n.visitorServerName,
+                      hintText: l10n.visitorServerNameHint),
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? l10n.requiredField : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _secretKey,
+                  decoration: InputDecoration(labelText: l10n.secretKey),
+                ),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: _bindAddr,
+                      decoration: InputDecoration(labelText: l10n.bindAddr),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _bindPort,
+                      decoration: InputDecoration(labelText: l10n.bindPort),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (v) =>
+                          v == null || int.tryParse(v) == null ? l10n.mustBeNumber : null,
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text(l10n.advancedJson),
+                  children: [
+                    TextFormField(
+                      controller: _extra,
+                      maxLines: 5,
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      decoration: const InputDecoration(
+                          hintText: '{"keepTunnelOpen": true}'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text(l10n.btnCancel)),
+                  const SizedBox(width: 8),
+                  FilledButton(onPressed: _save, child: Text(l10n.btnSave)),
                 ]),
               ],
             ),

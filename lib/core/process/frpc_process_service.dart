@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 import '../../model/profile.dart';
 
@@ -21,6 +22,13 @@ class FrpcProcessService extends ChangeNotifier {
 
   /// 是否异常退出后自动重启(可在设置中关闭)。
   bool autoRestart = true;
+
+  /// 日志落盘目录(可选,由 AppState 注入);null 时仅内存。
+  Directory? logDir;
+
+  IOSink? _logSink;
+  String? _logSinkKey; // profileId|日期,变化时切换文件
+  File? _pidFile; // 运行标记,供下次启动检测孤儿进程
 
   static const int _maxLogLines = 2000;
   final List<String> _logs = [];
@@ -54,6 +62,10 @@ class FrpcProcessService extends ChangeNotifier {
     try {
       final process = await Process.start(frpcPath, ['-c', configPath]);
       _process = process;
+      _pidFile = File(p.join(p.dirname(configPath), 'frpc.pid'));
+      try {
+        _pidFile!.writeAsStringSync('${process.pid}');
+      } catch (_) {}
       _lastStart = DateTime.now();
       _state = FrpcRunState.running;
       _startedAt = _lastStart;
@@ -112,6 +124,11 @@ class FrpcProcessService extends ChangeNotifier {
     final wasStopping = _state == FrpcRunState.stopping;
     _exitCode = code;
     _process = null;
+    try {
+      _pidFile?.deleteSync();
+    } catch (_) {}
+    _pidFile = null;
+    _closeLogSink();
     _appendLog('[flux] frpc 退出,exitCode=$code${wasStopping ? '(主动停止)' : ''}');
 
     // 运行稳定 60s 后重置重启计数
@@ -147,7 +164,40 @@ class FrpcProcessService extends ChangeNotifier {
     final stamped = '${DateTime.now().toIso8601String().substring(11, 23)} $line';
     _logs.add(stamped);
     _logController.add(stamped);
+    _writeLogToDisk(stamped);
   }
+
+  void _writeLogToDisk(String line) {
+    final dir = logDir;
+    if (dir == null) return;
+    try {
+      final now = DateTime.now();
+      final id = _runningProfileId ?? 'app';
+      final key = '$id|${now.year}-${now.month}-${now.day}';
+      if (_logSink == null || _logSinkKey != key) {
+        unawaited(_logSink?.flush());
+        unawaited(_logSink?.close());
+        final dayDir = Directory(p.join(dir.path, id));
+        dayDir.createSync(recursive: true);
+        _logSink = File(p.join(dayDir.path,
+                '${now.year}-${_pad2(now.month)}-${_pad2(now.day)}.log'))
+            .openWrite(mode: FileMode.append);
+        _logSinkKey = key;
+      }
+      _logSink!.writeln(line);
+    } catch (_) {
+      // 磁盘写失败不影响内存日志与界面
+    }
+  }
+
+  void _closeLogSink() {
+    unawaited(_logSink?.flush());
+    unawaited(_logSink?.close());
+    _logSink = null;
+    _logSinkKey = null;
+  }
+
+  static String _pad2(int n) => n.toString().padLeft(2, '0');
 
   void clearLogs() => _logs.clear();
 
@@ -155,6 +205,7 @@ class FrpcProcessService extends ChangeNotifier {
   void dispose() {
     _restartTimer?.cancel();
     _process?.kill();
+    _closeLogSink();
     _logController.close();
     super.dispose();
   }

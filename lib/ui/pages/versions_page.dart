@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 
 class VersionsPage extends StatefulWidget {
@@ -29,8 +30,9 @@ class _VersionsPageState extends State<VersionsPage> {
       await app.setActiveVersion(version);
       if (mounted) {
         setState(() => _downloading = null);
+        final l10n = AppLocalizations.of(context)!;
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('frpc v$version 已就绪')));
+            .showSnackBar(SnackBar(content: Text(l10n.versionReady(version))));
       }
     } catch (e) {
       if (mounted) {
@@ -44,6 +46,7 @@ class _VersionsPageState extends State<VersionsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final app = context.watch<AppState>();
     final installed = app.binaries.listInstalled();
     final bundled = app.binaries.bundledBinaryPath();
@@ -56,7 +59,8 @@ class _VersionsPageState extends State<VersionsPage> {
         children: [
           Row(
             children: [
-              Text('frpc 版本', style: Theme.of(context).textTheme.titleLarge),
+              Text(l10n.versionsTitle,
+                  style: Theme.of(context).textTheme.titleLarge),
               const Spacer(),
               FutureBuilder<String>(
                 future: app.binaries.fetchLatestVersion(),
@@ -64,7 +68,7 @@ class _VersionsPageState extends State<VersionsPage> {
                   if (!snap.hasData) return const SizedBox.shrink();
                   final latest = snap.data!;
                   _latestHint = latest;
-                  return Text('最新版 v$latest',
+                  return Text(l10n.latestVersion(latest),
                       style: Theme.of(context).textTheme.bodySmall);
                 },
               ),
@@ -77,15 +81,16 @@ class _VersionsPageState extends State<VersionsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('下载新版本', style: Theme.of(context).textTheme.titleSmall),
+                  Text(l10n.downloadNewTitle,
+                      style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 8),
                   Row(children: [
                     Expanded(
                       child: TextField(
                         controller: controller,
-                        decoration: const InputDecoration(
-                          labelText: '版本号',
-                          hintText: '如 0.71.0,留空用最新版',
+                        decoration: InputDecoration(
+                          labelText: l10n.versionFieldLabel,
+                          hintText: l10n.versionFieldHint,
                           isDense: true,
                         ),
                       ),
@@ -98,7 +103,7 @@ class _VersionsPageState extends State<VersionsPage> {
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2)),
-                      label: const Text('下载'),
+                      label: Text(l10n.btnDownload),
                       onPressed: _downloading == null
                           ? () async {
                               var ver = controller.text.trim();
@@ -140,7 +145,7 @@ class _VersionsPageState extends State<VersionsPage> {
                           Icon(Icons.system_update,
                               size: 48, color: Colors.grey.shade400),
                           const SizedBox(height: 8),
-                          const Text('尚未安装任何 frpc 版本'),
+                          Text(l10n.noVersionsHint),
                         ],
                       ),
                     )
@@ -176,7 +181,7 @@ class _VersionsPageState extends State<VersionsPage> {
                         if (bundled != null)
                           ListTile(
                             leading: const Icon(Icons.inventory_2_outlined),
-                            title: const Text('打包内置版本'),
+                            title: Text(l10n.bundledVersionTitle),
                             subtitle: Text(bundled),
                           ),
                       ],

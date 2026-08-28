@@ -42,12 +42,30 @@ void main() async {
   Image scaled(int s) => copyResize(img, width: s, height: s,
       interpolation: Interpolation.average);
 
+  // 托盘双态:运行=彩色,停止=去饱和灰
+  final runSizes = [16, 24, 32, 48, 64].map(scaled).toList();
+  final stopSizes =
+      [16, 24, 32, 48, 64].map((s) => _desaturate(scaled(s))).toList();
+
   await _write('assets/app/icon_256.png', encodePng(scaled(256)));
-  await _write('assets/tray/icon.png', encodePng(scaled(256)));
-  await _write('assets/tray/icon.ico',
-      _encodeIcoMulti([16, 24, 32, 48, 64].map(scaled).toList()));
+  await _write('assets/tray/icon_running.png', encodePng(scaled(256)));
+  await _write('assets/tray/icon_running.ico', _encodeIcoMulti(runSizes));
+  await _write('assets/tray/icon_stopped.png', encodePng(_desaturate(scaled(256))));
+  await _write('assets/tray/icon_stopped.ico', _encodeIcoMulti(stopSizes));
   stdout.writeln(
-      '图标已生成:assets/app/icon_256.png, assets/tray/icon.png, assets/tray/icon.ico');
+      '图标已生成:assets/app/icon_256.png + assets/tray/icon_{running,stopped}.{png,ico}');
+}
+
+/// 去饱和(亮度加权),保留 alpha。
+Image _desaturate(Image img) {
+  for (var y = 0; y < img.height; y++) {
+    for (var x = 0; x < img.width; x++) {
+      final c = img.getPixel(x, y);
+      final lum = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b).round();
+      img.setPixel(x, y, ColorUint8.rgba(lum, lum, lum, c.a.toInt()));
+    }
+  }
+  return img;
 }
 
 bool _inRoundedRect(double x, double y) {

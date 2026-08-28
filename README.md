@@ -60,7 +60,8 @@ curl -sLO https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_w
 
 - [x] M0 脚手架与领域模型、调研沉淀([docs/research.md](docs/research.md))
 - [x] M1 桌面 MVP(Windows):可视化配置编辑、TOML 生成/导入、frpc 进程管理(日志流/退避重启)、Admin API 状态与热重载、frpc 版本管理
-- [x] M2 桌面完善:托盘(菜单/tooltip 随运行状态)/关闭最小化到托盘/单实例/开机自启、自定义图标、CI 三平台打包
+- [x] M2 桌面完善:托盘(菜单/双态图标/tooltip 随运行状态)/关闭最小化到托盘/单实例/开机自启、自定义图标、CI 三平台打包
+- [x] M2.5 桌面精修:visitor(stcp/xtcp/sudp)可视化编辑、frpc verify 启动前校验、配置导出、日志按天落盘、窗口状态记忆、检查更新、孤儿 frpc 进程检测清理、token 系统凭据库存储、中英双语(zh/en)
 - [ ] M3 Android:NDK 构建 libfrpc.so/jniLibs 打包/specialUse 前台服务/开机自启
 - [ ] M4 iOS:gomobile 库内运行(前台+自动重连形态)
 
@@ -68,22 +69,44 @@ curl -sLO https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_w
 
 ## 打包与发布
 
-推 tag(`v*`)即触发 GitHub Actions 三平台打包并附到 Release(见 `.github/workflows/release.yml`):
+**发版流程**:改 `pubspec.yaml` 的 `version` → 提交 → 打同号 tag(如 `v1.1.0`)并推送 → Actions 自动打包出 Release,应用内"检查更新"即可感知新版本。
 
-- Windows:zip(`flutter build windows`)
-- macOS:dmg(`flutter build macos`)
-- Linux:AppImage + deb(`flutter build linux`)
+```bash
+git tag v1.1.0 && git push origin v1.1.0
+```
 
-修改图标设计后重新生成应用/托盘图标:
+推 tag 后 GitHub Actions 产出(`.github/workflows/release.yml`,**包内已内置 frpc**,首启无需联网下载;内置版本由 workflow 的 `FRPC_VERSION` 变量控制):
+
+| 产物 | 平台 |
+|---|---|
+| `flux-windows-x64.zip` | Windows 10+ x64 |
+| `flux-macos-arm64.dmg` / `flux-macos-x64.dmg` | macOS 13+(Apple Silicon / Intel) |
+| `flux-linux-x86_64.AppImage` / `flux-linux-amd64.deb` | Linux x64 |
+| `flux-linux-arm64.AppImage` / `flux-linux-arm64.deb` | Linux arm64 |
+
+修改图标设计后重新生成应用/托盘图标(运行态彩色/停止态灰):
 
 ```bash
 dart run tool/gen_icons.dart && dart run flutter_launcher_icons
 ```
 
+### 签名与公证(可选)
+
+目前产物未签名:Windows 首次运行会弹 SmartScreen(点"仍要运行"),macOS 需右键打开或 `xattr -cr Flux.app`。拿到证书后在仓库 secrets 配置并取消 release.yml 中对应注释块即可自动签名:
+
+- **Windows**:代码签名证书 pfx 转 Base64 存 `WINDOWS_CERT_PFX_B64` + `WINDOWS_CERT_PASSWORD`,workflow 中已预留 signtool 步骤
+- **macOS**:需要 Apple Developer 账号,配置 `APPLE_DEV_ID`/`APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID`,workflow 中已预留 codesign + notarytool 公证步骤
+
 ### 平台说明
 
-- **Linux 托盘**:依赖 ayatana appindicator(deb 已声明 `libayatana-appindicator3-1` 依赖);GNOME 需安装 AppIndicator 扩展才会显示托盘,KDE/X11 无需额外配置
+- **Linux 托盘**:依赖 ayatana appindicator(deb 已声明 `libayatana-appindicator3-1` 依赖);GNOME 需安装 AppIndicator 扩展才会显示托盘,KDE/X11 无需额外配置。token 安全存储需要 keyring 服务(gnome-keyring/KWallet),无 keyring 时自动回退明文 JSON
 - **macOS**:应用关闭了 App Sandbox —— frpc 需以子进程运行,且单实例需要本地回环监听;仅 dmg 分发,不支持上架 Mac App Store
+- **Windows arm64**:Flutter 暂不支持交叉构建,暂不提供
+- **多 Profile 同时运行**:暂不支持(单 frpc 实例),规划为独立里程碑
+
+### i18n
+
+界面跟随系统语言(中文/英文)。文案在 `lib/l10n/app_*.arb`,改后 `flutter gen-l10n` 重新生成。
 
 ## License
 

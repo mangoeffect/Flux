@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/process/frpc_process_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 
 class HomePage extends StatefulWidget {
@@ -61,6 +62,12 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (app.updateAvailable != null)
+            _updateBanner(context, app),
+          if (app.orphanPids.isNotEmpty) ...[
+            _orphanBanner(context, app),
+            const SizedBox(height: 8),
+          ],
           _statusCard(context, app, frpc, profile),
           const SizedBox(height: 12),
           if (frpc.isRunning && app.proxyStatuses.isNotEmpty)
@@ -73,20 +80,74 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _updateBanner(BuildContext context, AppState app) {
+    final l10n = AppLocalizations.of(context)!;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(
+          children: [
+            Icon(Icons.system_update_alt,
+                size: 18, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(l10n.updateBannerMsg(app.updateAvailable!),
+                  style: Theme.of(context).textTheme.bodyMedium),
+            ),
+            TextButton(
+              onPressed: app.openReleasesPage,
+              child: Text(l10n.btnView),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _orphanBanner(BuildContext context, AppState app) {
+    final l10n = AppLocalizations.of(context)!;
+    return Card(
+      color: Theme.of(context).colorScheme.errorContainer,
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded,
+                size: 18, color: Theme.of(context).colorScheme.onErrorContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(l10n.orphanBanner(app.orphanPids.join(', ')),
+                  style: Theme.of(context).textTheme.bodyMedium),
+            ),
+            TextButton(
+              onPressed: () async {
+                await app.cleanupOrphans();
+              },
+              child: Text(l10n.btnCleanup),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _statusCard(BuildContext context, AppState app,
       FrpcProcessService frpc, profile) {
+      final l10n = AppLocalizations.of(context)!;
       final running = frpc.state == FrpcRunState.running;
       final color = switch (frpc.state) {
         FrpcRunState.running => Colors.green,
         FrpcRunState.starting || FrpcRunState.stopping => Colors.orange,
         FrpcRunState.stopped => Colors.grey,
       };
-      String uptime = '';
+      String? uptime;
       if (running && frpc.startedAt != null) {
         final d = DateTime.now().difference(frpc.startedAt!);
         uptime = d.inHours > 0
-            ? '${d.inHours}时${d.inMinutes % 60}分'
-            : '${d.inMinutes}分${d.inSeconds % 60}秒';
+            ? l10n.durHours(d.inHours, d.inMinutes % 60)
+            : l10n.durMinutes(d.inMinutes, d.inSeconds % 60);
       }
       return Card(
         child: Padding(
@@ -100,33 +161,38 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(width: 8),
                   Text(
                     switch (frpc.state) {
-                      FrpcRunState.stopped => '已停止',
-                      FrpcRunState.starting => '启动中...',
-                      FrpcRunState.running => '运行中',
-                      FrpcRunState.stopping => '停止中...',
+                      FrpcRunState.stopped => l10n.statusStopped,
+                      FrpcRunState.starting => l10n.statusStarting,
+                      FrpcRunState.running => l10n.statusRunning,
+                      FrpcRunState.stopping => l10n.statusStopping,
                     },
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const Spacer(),
-                  if (uptime.isNotEmpty)
+                  if (uptime != null)
                     Padding(
                       padding: const EdgeInsets.only(right: 12),
-                      child: Text('已运行 $uptime',
+                      child: Text(l10n.uptimeLabel(uptime),
                           style: Theme.of(context).textTheme.bodySmall),
                     ),
                   FilledButton.icon(
                     onPressed: () => _toggle(app),
                     icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                    label: Text(running ? '停止' : '启动'),
+                    label: Text(running ? l10n.btnStop : l10n.btnStart),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
               Text(
                 profile == null
-                    ? '尚未创建配置'
-                    : '${profile.name} · ${profile.serverAddr}:${profile.serverPort} · '
-                        '${profile.enabledProxies.length} 条代理 · frpc ${app.activeVersion ?? "未选择"}',
+                    ? l10n.noProfile
+                    : l10n.profileSummary(
+                        profile.name,
+                        profile.serverAddr,
+                        profile.serverPort,
+                        profile.enabledProxies.length,
+                        app.activeVersion ?? l10n.frpcVersionUnset,
+                      ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -152,13 +218,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _proxyStatusTable(BuildContext context, AppState app) {
+    final l10n = AppLocalizations.of(context)!;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('代理状态', style: Theme.of(context).textTheme.titleSmall),
+            Text(l10n.proxyStatusTitle,
+                style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             ...app.proxyStatuses.map((s) => Padding(
                   padding: const EdgeInsets.symmetric(vertical: 3),
@@ -170,12 +238,12 @@ class _HomePageState extends State<HomePage> {
                         color: s.isRunning ? Colors.green : Colors.orange,
                       ),
                       const SizedBox(width: 8),
-                      Text('${s.name} (${s.type})'),
+                      Text(l10n.proxyNameType(s.name, s.type)),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           s.isRunning
-                              ? '${s.localAddr} → ${s.remoteAddr}'
+                              ? l10n.proxyAddrLine(s.localAddr, s.remoteAddr)
                               : (s.err.isEmpty ? s.status : s.err),
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodySmall,
@@ -191,6 +259,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _logConsole(BuildContext context, FrpcProcessService frpc) {
+    final l10n = AppLocalizations.of(context)!;
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -201,11 +270,12 @@ class _HomePageState extends State<HomePage> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Row(
               children: [
-                Text('日志', style: Theme.of(context).textTheme.titleSmall),
+                Text(l10n.logsTitle,
+                    style: Theme.of(context).textTheme.titleSmall),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, size: 18),
-                  tooltip: '清空日志',
+                  tooltip: l10n.clearLogs,
                   onPressed: () {
                     frpc.clearLogs();
                     setState(() {});
