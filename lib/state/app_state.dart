@@ -10,6 +10,7 @@ import '../core/config/config_service.dart';
 import '../core/process/frpc_process_service.dart';
 import '../model/profile.dart';
 import '../model/proxy_config.dart';
+import '../platform/startup_service.dart';
 
 /// 全局状态:Profile/版本/设置管理,frpc 启停编排,状态轮询。
 class AppState extends ChangeNotifier {
@@ -24,6 +25,11 @@ class AppState extends ChangeNotifier {
   String? activeProfileId;
   String? activeVersion; // frpc 版本目录名
   String? get mirror => binaries.mirror;
+
+  /// 关闭窗口时最小化到托盘(而非退出)。
+  bool closeToTray = true;
+  /// 随系统登录自启。
+  bool launchAtStartup = false;
 
   bool get ready => _initCompleter.isCompleted;
   final _initCompleter = Completer<void>();
@@ -51,6 +57,17 @@ class AppState extends ChangeNotifier {
     );
     frpc.autoRestart = _prefs.getBool('autoRestart') ?? true;
     frpc.onAutoRestart = _autoRestart;
+    // frpc 状态变化(starting/running/退出码等)转发给全局监听者(托盘/UI)
+    frpc.addListener(notifyListeners);
+
+    closeToTray = _prefs.getBool('closeToTray') ?? true;
+    // 自启以系统实际状态为准,本地偏好仅作查询失败时的回退
+    launchAtStartup = _prefs.getBool('launchAtStartup') ?? false;
+    if (StartupService.supported) {
+      try {
+        launchAtStartup = await StartupService.isEnabled();
+      } catch (_) {}
+    }
 
     profiles = await configService.loadProfiles();
     activeProfileId = _prefs.getString('activeProfileId');
@@ -194,6 +211,25 @@ class AppState extends ChangeNotifier {
   Future<void> setAutoRestart(bool value) async {
     frpc.autoRestart = value;
     await _prefs.setBool('autoRestart', value);
+    notifyListeners();
+  }
+
+  Future<void> setCloseToTray(bool value) async {
+    closeToTray = value;
+    await _prefs.setBool('closeToTray', value);
+    notifyListeners();
+  }
+
+  Future<void> setLaunchAtStartup(bool value) async {
+    launchAtStartup = value;
+    await _prefs.setBool('launchAtStartup', value);
+    if (StartupService.supported) {
+      try {
+        value ? await StartupService.enable() : await StartupService.disable();
+      } catch (e) {
+        debugPrint('设置开机自启失败: $e');
+      }
+    }
     notifyListeners();
   }
 

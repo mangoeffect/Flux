@@ -60,11 +60,30 @@ curl -sLO https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_w
 
 - [x] M0 脚手架与领域模型、调研沉淀([docs/research.md](docs/research.md))
 - [x] M1 桌面 MVP(Windows):可视化配置编辑、TOML 生成/导入、frpc 进程管理(日志流/退避重启)、Admin API 状态与热重载、frpc 版本管理
-- [ ] M2 桌面完善:托盘/关闭最小化/开机自启、macOS/Linux 打包
+- [x] M2 桌面完善:托盘(菜单/tooltip 随运行状态)/关闭最小化到托盘/单实例/开机自启、自定义图标、CI 三平台打包
 - [ ] M3 Android:NDK 构建 libfrpc.so/jniLibs 打包/specialUse 前台服务/开机自启
 - [ ] M4 iOS:gomobile 库内运行(前台+自动重连形态)
 
 调研详情见 [docs/research.md](docs/research.md)。
+
+## 打包与发布
+
+推 tag(`v*`)即触发 GitHub Actions 三平台打包并附到 Release(见 `.github/workflows/release.yml`):
+
+- Windows:zip(`flutter build windows`)
+- macOS:dmg(`flutter build macos`)
+- Linux:AppImage + deb(`flutter build linux`)
+
+修改图标设计后重新生成应用/托盘图标:
+
+```bash
+dart run tool/gen_icons.dart && dart run flutter_launcher_icons
+```
+
+### 平台说明
+
+- **Linux 托盘**:依赖 ayatana appindicator(deb 已声明 `libayatana-appindicator3-1` 依赖);GNOME 需安装 AppIndicator 扩展才会显示托盘,KDE/X11 无需额外配置
+- **macOS**:应用关闭了 App Sandbox —— frpc 需以子进程运行,且单实例需要本地回环监听;仅 dmg 分发,不支持上架 Mac App Store
 
 ## License
 

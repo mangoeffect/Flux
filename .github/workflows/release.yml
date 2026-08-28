@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Pack zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/windows/x64/runner/Release/* `
+            -DestinationPath flux-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flux-windows-x64
+          path: flux-windows-x64.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: flux-windows-x64.zip
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: Create dmg
+        run: |
+          APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          hdiutil create -volname Flux -srcfolder "$APP" -ov -format UDZO flux-macos.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flux-macos
+          path: flux-macos.dmg
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: flux-macos.dmg
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+          channel: stable
+          cache: true
+      # tray_manager 需要 ayatana appindicator
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
+          libayatana-appindicator3-dev
+      - run: flutter pub get
+      - run: flutter build linux --release
+
+      - name: Build AppImage
+        run: |
+          curl -sL -o linuxdeploy \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
+          mkdir -p AppDir/usr/bin
+          cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
+          cp assets/app/icon_256.png AppDir/flux.png
+          printf '[Desktop Entry]\nName=Flux\nExec=flux\nIcon=flux\nType=Application\nCategories=Network;\n' \
+            > AppDir/flux.desktop
+          ./linuxdeploy --appdir AppDir --output appimage
+          mv Flux-*-x86_64.AppImage flux-linux-x86_64.AppImage
+
+      - name: Build deb
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER=${VER#v}
+          mkdir -p pkg/DEBIAN pkg/opt/flux pkg/usr/bin \
+            pkg/usr/share/applications pkg/usr/share/icons/hicolor/256x256/apps
+          cp -r build/linux/x64/release/bundle/* pkg/opt/flux/
+          ln -s /opt/flux/flux pkg/usr/bin/flux
+          cp assets/app/icon_256.png pkg/usr/share/icons/hicolor/256x256/apps/flux.png
+          printf '[Desktop Entry]\nName=Flux\nExec=flux\nIcon=flux\nType=Application\nCategories=Network;\n' \
+            > pkg/usr/share/applications/flux.desktop
+          printf 'Package: flux\nVersion: %s\nArchitecture: amd64\nMaintainer: flux\nDescription: frp cross-platform GUI client\nDepends: libgtk-3-0, libayatana-appindicator3-1\n' "$VER" \
+            > pkg/DEBIAN/control
+          dpkg-deb --build pkg flux-linux-amd64.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flux-linux
+          path: |
+            flux-linux-x86_64.AppImage
+            flux-linux-amd64.deb
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            flux-linux-x86_64.AppImage
+            flux-linux-amd64.deb

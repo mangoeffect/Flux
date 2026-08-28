@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
@@ -67,13 +68,55 @@ class SettingsPage extends StatelessWidget {
             ),
           ),
           Card(
-            child: ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text('Flux'),
-              subtitle: const Text('Flutter 实现的 frp 客户端 · frp 遵循 Apache-2.0'),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('关闭窗口时最小化到托盘'),
+                  subtitle: const Text('关闭主窗口后台保持 frpc 运行,从托盘菜单退出'),
+                  value: app.closeToTray,
+                  onChanged: app.setCloseToTray,
+                ),
+                SwitchListTile(
+                  title: const Text('开机自启'),
+                  subtitle: const Text('登录系统后自动启动 Flux'),
+                  value: app.launchAtStartup,
+                  onChanged: app.setLaunchAtStartup,
+                ),
+              ],
             ),
           ),
+          const _AboutCard(),
         ],
+      ),
+    );
+  }
+}
+
+class _AboutCard extends StatefulWidget {
+  const _AboutCard();
+
+  @override
+  State<_AboutCard> createState() => _AboutCardState();
+}
+
+class _AboutCardState extends State<_AboutCard> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) setState(() => _version = 'v${info.version}');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.info_outline),
+        title: const Text('Flux'),
+        subtitle: Text('$_version · Flutter 实现的 frp 客户端 · frp 遵循 Apache-2.0'),
       ),
     );
   }

@@ -1,6 +1,11 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_single_instance/flutter_single_instance.dart';
+import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
+
+import 'platform/desktop_shell.dart';
 import 'state/app_state.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/pages/profile_page.dart';
@@ -8,17 +13,47 @@ import 'ui/pages/proxies_page.dart';
 import 'ui/pages/settings_page.dart';
 import 'ui/pages/versions_page.dart';
 
-void main() {
-  runApp(const FluxApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final app = AppState()..init();
+  final desktop =
+      Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+  DesktopShell? shell;
+
+  if (desktop) {
+    // 单实例:非首实例时插件会激活已运行实例,直接退出本次启动。
+    // 注意:Windows 上从 main 返回不会结束进程,必须显式 exit。
+    if (!await FlutterSingleInstance().isFirstInstance()) exit(0);
+    await windowManager.ensureInitialized();
+    shell = DesktopShell(app);
+    windowManager.waitUntilReadyToShow(
+      const WindowOptions(
+        size: Size(1280, 720),
+        minimumSize: Size(1000, 680),
+        title: 'Flux — frp 客户端',
+        center: true,
+      ),
+      () async {
+        await windowManager.show();
+        await windowManager.focus();
+      },
+    );
+  }
+
+  runApp(FluxApp(app: app));
+  if (desktop) shell!.start();
 }
 
 class FluxApp extends StatelessWidget {
-  const FluxApp({super.key});
+  const FluxApp({super.key, required this.app});
+
+  final AppState app;
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AppState()..init(),
+    return ChangeNotifierProvider.value(
+      value: app,
       child: MaterialApp(
         title: 'Flux — frp 客户端',
         debugShowCheckedModeBanner: false,
