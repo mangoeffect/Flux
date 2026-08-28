@@ -5,6 +5,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# softprops 上传 Release 需要 contents 写权限(默认只读)
+permissions:
+  contents: write
+
 env:
   # Release 包内置的 frpc 版本(升级时改这一处)
   FRPC_VERSION: "0.71.0"
