@@ -140,6 +140,8 @@ jobs:
           cp assets/app/icon_256.png AppDir/flux.png
           printf '[Desktop Entry]\nName=Flux\nExec=flux\nIcon=flux\nType=Application\nCategories=Network;\n' \
             > AppDir/flux.desktop
+          # CI 环境无 FUSE,以解压模式运行 AppImage 工具
+          export APPIMAGE_EXTRACT_AND_RUN=1
           ./linuxdeploy --appdir AppDir --output appimage
           mv Flux-*-x86_64.AppImage flux-linux-x86_64.AppImage
 
@@ -194,6 +196,8 @@ jobs:
           cp assets/app/icon_256.png AppDir/flux.png
           printf '[Desktop Entry]\nName=Flux\nExec=flux\nIcon=flux\nType=Application\nCategories=Network;\n' \
             > AppDir/flux.desktop
+          # CI 环境无 FUSE,以解压模式运行 AppImage 工具
+          export APPIMAGE_EXTRACT_AND_RUN=1
           ./linuxdeploy --appdir AppDir --output appimage
           mv Flux-*.AppImage flux-linux-arm64.AppImage || true
 
