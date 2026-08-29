@@ -156,7 +156,18 @@ class DesktopShell with WindowListener, TrayListener {
 
   @override
   void onTrayIconMouseDown() {
-    // macOS 点按图标即弹出菜单,交给菜单处理;Windows/Linux 单击恢复窗口。
-    if (!Platform.isMacOS) _showWindow();
+    // macOS 惯例是点按图标弹出菜单;Windows/Linux 左键单击恢复窗口。
+    if (Platform.isMacOS) {
+      trayManager.popUpContextMenu();
+    } else {
+      _showWindow();
+    }
+  }
+
+  /// tray_manager 在 Windows/macOS 上只回调本方法,不自动弹菜单,
+  /// 必须显式 popUpContextMenu(Linux AppIndicator 由系统自行弹出)。
+  @override
+  void onTrayIconRightMouseDown() {
+    trayManager.popUpContextMenu();
   }
 }
