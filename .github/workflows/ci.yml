@@ -18,5 +18,10 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
+      # 下载真实 frp 二进制供 e2e 全链路测试(缺失时 e2e 会自动跳过,这里显式断言防静默降级)
+      - name: Fetch frp binaries for e2e
+        run: |
+          bash scripts/fetch_frpc.sh linux amd64 0.71.0 ".e2e/frp_0.71.0_linux_amd64" --with-frps
+          test -x ".e2e/frp_0.71.0_linux_amd64/frps"
+          test -x ".e2e/frp_0.71.0_linux_amd64/frpc"
       - run: flutter test
-        # e2e 用例在无 .e2e/ frp 二进制时自动跳过

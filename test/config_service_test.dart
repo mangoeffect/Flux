@@ -197,4 +197,80 @@ void main() {
     final back = service.fromToml(exported, name: 'back');
     expect(back.serverAddr, '1.2.3.4');
   });
+
+  Map<String, dynamic> proxyTomlOf(ProxyConfig p) {
+    final tomlText = service.profileToToml(Profile(
+        id: 'p', name: 'p', serverAddr: '1.2.3.4', proxies: [p]));
+    final proxies = TomlDocument.parse(tomlText).toMap()['proxies'] as List;
+    return proxies.single as Map<String, dynamic>;
+  }
+
+  test('七种代理类型 TOML 字段生成:必需字段在,无关字段不出现', () {
+    // tcp/udp:必须带 remotePort,不带 secretKey
+    final tcp = proxyTomlOf(ProxyConfig(
+        name: 'p', type: ProxyType.tcp, localPort: 80, remotePort: 8080));
+    expect(tcp['remotePort'], 8080);
+    expect(tcp.containsKey('secretKey'), isFalse);
+    expect(proxyTomlOf(ProxyConfig(
+            name: 'p', type: ProxyType.udp, localPort: 53, remotePort: 8053))[
+        'remotePort'], 8053);
+
+    // http/https:域名路由字段透传,不接受 remotePort
+    final http = proxyTomlOf(ProxyConfig(
+        name: 'p',
+        type: ProxyType.http,
+        localPort: 80,
+        subdomain: 'dev',
+        customDomains: ['a.example.com'],
+        locations: ['/api']));
+    expect(http['subdomain'], 'dev');
+    expect(http['customDomains'], ['a.example.com']);
+    expect(http['locations'], ['/api']);
+    expect(http.containsKey('remotePort'), isFalse);
+    final https = proxyTomlOf(ProxyConfig(
+        name: 'p',
+        type: ProxyType.https,
+        localPort: 443,
+        customDomains: ['s.example.com']));
+    expect(https['customDomains'], ['s.example.com']);
+
+    // stcp/xtcp/sudp:secret 型代理,带 secretKey,不带 remotePort(frp 0.71 拒绝)
+    final stcp = proxyTomlOf(ProxyConfig(
+        name: 'p', type: ProxyType.stcp, localPort: 22, secretKey: 'sk'));
+    expect(stcp['secretKey'], 'sk');
+    expect(stcp.containsKey('remotePort'), isFalse);
+    final xtcp = proxyTomlOf(ProxyConfig(
+        name: 'p', type: ProxyType.xtcp, localPort: 22, secretKey: 'sk'));
+    expect(xtcp['secretKey'], 'sk');
+    expect(xtcp.containsKey('remotePort'), isFalse);
+    final sudp = proxyTomlOf(ProxyConfig(
+        name: 'p', type: ProxyType.sudp, localPort: 53, secretKey: 'sk'));
+    expect(sudp['secretKey'], 'sk');
+    expect(sudp.containsKey('remotePort'), isFalse);
+  });
+
+  test('三种访问端 TOML 输出:serverName/secretKey/bindAddr/bindPort', () {
+    for (final vtype in [VisitorType.stcp, VisitorType.xtcp, VisitorType.sudp]) {
+      final profile = Profile(id: 'v', name: 'v', serverAddr: '1.2.3.4');
+      profile.visitors.add(VisitorConfig(
+        name: 'v-${vtype.name}',
+        type: vtype,
+        serverName: 'svc',
+        secretKey: 'sk',
+        bindAddr: '127.0.0.1',
+        bindPort: 6100,
+      ).toMap());
+
+      final map = TomlDocument.parse(service.profileToToml(profile)).toMap();
+      final visitors = map['visitors'] as List;
+      expect(visitors.length, 1, reason: 'visitor 类型 ${vtype.name}');
+      final v = visitors.single as Map;
+      expect(v['name'], 'v-${vtype.name}');
+      expect(v['type'], vtype.name);
+      expect(v['serverName'], 'svc');
+      expect(v['secretKey'], 'sk');
+      expect(v['bindAddr'], '127.0.0.1');
+      expect(v['bindPort'], 6100);
+    }
+  });
 }

@@ -12,15 +12,14 @@ import 'package:flux/core/process/frpc_process_service.dart';
 import 'package:flux/model/profile.dart';
 import 'package:flux/model/proxy_config.dart';
 
+import 'e2e_helpers.dart';
+
 /// 端到端验收:真实拉起 frps + frpc(取自 .e2e/ 目录,未下载则跳过),
 /// 验证 配置生成 → 进程管理 → Admin API 状态 → 数据穿透 → 热重载 → 停止。
 void main() {
-  final root = Directory.current;
-  final frpDir = Directory('${root.path}${Platform.pathSeparator}.e2e'
-      '${Platform.pathSeparator}frp_0.71.0_windows_amd64');
-  final frpsBin = File('${frpDir.path}${Platform.pathSeparator}frps.exe');
-  final frpcBin = File('${frpDir.path}${Platform.pathSeparator}frpc.exe');
-  final binariesReady = frpsBin.existsSync() && frpcBin.existsSync();
+  final frpsBin = e2eBinary('frps');
+  final frpcBin = e2eBinary('frpc');
+  final binariesReady = frpsBin != null && frpcBin != null;
 
   test('frpc 全链路:启动→状态→数据穿透→热重载→停止', skip: binariesReady ? false : '未下载 frp 二进制(.e2e/)', () async {
     final workDir = await Directory.systemTemp.createTemp('flux_e2e_');
@@ -33,7 +32,7 @@ void main() {
     // 本地 frps:127.0.0.1:17999,token 认证
     final frpsConfig = File('${workDir.path}${Platform.pathSeparator}frps.toml')
       ..writeAsStringSync('bindAddr = "127.0.0.1"\nbindPort = 17999\nauth.token = "e2e-token"\n');
-    final frps = await Process.start(frpsBin.path, ['-c', frpsConfig.path]);
+    final frps = await Process.start(frpsBin!.path, ['-c', frpsConfig.path]);
     addTearDown(() => frps.kill());
     final frpsLogs = <String>[];
     frps.stdout.transform(systemEncoding.decoder).transform(const LineSplitter()).listen(frpsLogs.add);
@@ -81,7 +80,7 @@ void main() {
     final frpc = FrpcProcessService();
     addTearDown(() => frpc.dispose());
     await frpc.start(
-        profile: profile, frpcPath: frpcBin.path, configPath: configFile.path);
+        profile: profile, frpcPath: frpcBin!.path, configPath: configFile.path);
 
     // Admin API:轮询直到代理 running
     final admin = AdminApiService(profile.adminWebServer!);

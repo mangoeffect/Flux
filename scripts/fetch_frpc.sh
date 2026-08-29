@@ -3,15 +3,21 @@
 # 桌面端运行时也可在应用内"版本管理"页直接下载(支持镜像),本脚本用于离线打包场景。
 #
 # 用法:
-#   scripts/fetch_frpc.sh <os> <arch> [version] [out_dir]
+#   scripts/fetch_frpc.sh <os> <arch> [version] [out_dir] [--with-frps]
 #   例: scripts/fetch_frpc.sh windows amd64              # 最新版 → third_party/frpc/windows-amd64/
 #       scripts/fetch_frpc.sh linux arm64 0.71.0 /tmp/x  # 指定版本与输出目录
+#       --with-frps: 同时拷出 frps(e2e 测试需要真实 frps)
 #
 # 可用环境变量:
 #   FRP_MIRROR  GitHub 下载镜像前缀,默认 https://github.com (如 ghproxy 类镜像)
 set -euo pipefail
 
-OS="${1:?用法: fetch_frpc.sh <windows|linux|darwin> <amd64|arm64|386|arm> [version] [out_dir]}"
+WITH_FRPS=0
+for a in "$@"; do
+  [[ "$a" == "--with-frps" ]] && WITH_FRPS=1
+done
+
+OS="${1:?用法: fetch_frpc.sh <windows|linux|darwin> <amd64|arm64|386|arm> [version] [out_dir] [--with-frps]}"
 ARCH="${2:?缺少 arch}"
 VERSION="${3:-}"
 OUT_DIR="${4:-third_party/frpc/${OS}-${ARCH}}"
@@ -54,4 +60,10 @@ BIN="frp_${VERSION}_${OS}_${ARCH}/frpc"
 
 cp "${TMP}/${BIN}" "${OUT_DIR}/"
 [[ "$OS" == "windows" ]] && chmod +x "${OUT_DIR}/frpc.exe"
+if [[ "$WITH_FRPS" == "1" ]]; then
+  SRV="${BIN%frpc*}frps"
+  cp "${TMP}/${SRV}" "${OUT_DIR}/"
+  chmod +x "${OUT_DIR}/${SRV##*/}"
+  echo "完成: ${OUT_DIR}/frps$( [[ "$OS" == "windows" ]] && echo '.exe' ) (v${VERSION})"
+fi
 echo "完成: ${OUT_DIR}/frpc$( [[ "$OS" == "windows" ]] && echo '.exe' ) (v${VERSION})"

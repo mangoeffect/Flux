@@ -70,8 +70,9 @@ class ProxyConfig {
   /// 其余高级字段,结构化保留。
   Map<String, Object> extra;
 
+  // frp 0.71: tcp/udp 用 remotePort;stcp/xtcp/sudp 为 secret 型代理,不接受 remotePort
   bool get needsRemotePort =>
-      type == ProxyType.tcp || type == ProxyType.udp || type == ProxyType.sudp;
+      type == ProxyType.tcp || type == ProxyType.udp;
   bool get needsDomain =>
       type == ProxyType.http || type == ProxyType.https;
   bool get needsSecretKey =>
